@@ -8,40 +8,44 @@ Python + Playwright
 
 ```bash
 pip install playwright
-playwright install chromium
+playwright install firefox
 ```
 
-2. 第一次运行先手动登录：
+2. 第一次运行先手动登录并预演：
 
 ```bash
-python main.py --keyword "AI数据开发"
+python main.py --keyword "AI数据开发" --dry-run --max-jobs 5
 ```
 
 请在 PowerShell 或命令提示符中运行，不要直接双击 `main.py`。首次运行不要加 `--headless`，这样可以看到登录页和可能的风控提示。
 
-3. 先预演，不实际发送：
+3. 确认职位识别无误后，再执行真实投递：
 
 ```bash
-python main.py --keyword "AI数据开发" --dry-run
+python main.py --keyword "AI数据开发" --send --max-jobs 5
 ```
 
 4. 直接发送消息时可以改模板：
 
 ```bash
-python main.py --keyword "AI数据开发" --message "您好，我对这个岗位很感兴趣，方便的话希望进一步了解。"
+python main.py --keyword "AI数据开发" --send --message "您好，我对这个岗位很感兴趣，方便的话希望进一步了解。"
 ```
 
 ## 参数
 
 - `--max-jobs`：最多处理多少个岗位
 - `--delay`：每个岗位之间的等待时间
-- `--headless`：无头运行
+- `--send`：实际点击投递/沟通按钮并发送消息，不加此参数时只预演
+- `--dry-run`：强制预演，即使同时传入 `--send` 也不会发送
 - `--reset-state`：清空已处理岗位记录
 
 ## 说明
 
-- 脚本会复用本地登录态，保存在 `.boss_playwright_profile`
-- 脚本使用系统已安装的 Google Chrome；如果未安装 Chrome，请先安装后再运行
+- 脚本会复用本地登录态，保存在 `.boss_firefox_profile`
+- 脚本使用 Playwright Firefox 持久化 Profile，首次运行需要安装 Firefox 运行时
 - 已处理岗位会记录在 `boss_state.json`
+- 每个职位会先打开详情页；默认只识别职位，只有传入 `--send` 才会执行投递
+- 投递入口和按钮文案可能随页面版本变化，识别不到时会记录提示而不会强行点击
+- 如果出现 `code=37` 安全验证，请先在 Firefox 中完成验证，确认职位列表可访问后再重试
 - 如果页面按钮文案改了，可能需要微调选择器
 - Boss 页面会检测自动化调试特征；脚本已处理常见检测并保留页面生命周期日志

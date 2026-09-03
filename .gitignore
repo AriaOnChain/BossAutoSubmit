@@ -3,3 +3,4 @@ __pycache__/
 boss_state.json
 *.pyc
 *.log
+.boss_firefox_profile
