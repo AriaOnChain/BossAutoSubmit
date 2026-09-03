@@ -1,0 +1,5 @@
+.boss_playwright_profile/
+__pycache__/
+boss_state.json
+*.pyc
+*.log
