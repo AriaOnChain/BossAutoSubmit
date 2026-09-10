@@ -28,7 +28,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Boss 直聘职位搜索与简历投递助手")
     parser.add_argument("--keyword", required=True, help="搜索关键词，例如：AI 数据开发")
     parser.add_argument("--city-code", default="101280300", help="Boss 城市代码，默认惠州")
-    parser.add_argument("--max-jobs", type=int, default=10, help="最多处理职位数，默认 10")
+    parser.add_argument("--max-jobs", type=int, default=10, help="目标成功投递数，默认 10")
     parser.add_argument("--delay", type=float, default=2.0, help="职位之间的等待秒数，默认 2")
     parser.add_argument("--message", default=DEFAULT_MESSAGE, help="沟通时发送的消息")
     parser.add_argument("--send", action="store_true", help="实际点击投递/沟通按钮并发送消息")
@@ -156,7 +156,7 @@ def first_visible_button(page, names):
 def submit_job(page, message):
     action = first_visible_button(page, ["立即沟通", "投递简历", "立即投递", "立即申请"])
     if action is None:
-        return "未找到投递按钮"
+        return "未找到投递按钮", False
     action.click(timeout=8000)
     page.wait_for_timeout(1200)
 
@@ -172,34 +172,52 @@ def submit_job(page, message):
             message_box = candidate
             break
     if message_box is None:
-        return "已点击投递入口"
+        return "已点击投递入口，投递成功（未发送招呼语）", True
 
     message_box.fill(message)
     send_button = first_visible_button(page, ["发送", "立即发送"])
     if send_button is None:
-        return "已填写消息，未找到发送按钮"
+        return "已点击投递入口，投递成功（招呼语未发送）", True
     send_button.click(timeout=8000)
     page.wait_for_timeout(800)
-    return "已投递并发送消息"
+    return "已投递并发送消息", True
 
 
 def process_jobs(page, jobs, state, args):
+    attempted = 0
+    sent = 0
     for index, job in enumerate(jobs, start=1):
+        if sent >= args.max_jobs:
+            break
         url = job["url"]
-        if url in state["processed"]:
+        record = state["processed"].get(url, {})
+        already_sent = (
+            record.get("success") is True
+            or record.get("result") == "已投递并发送消息"
+        )
+        if already_sent:
             print(f"[{index}/{len(jobs)}] 跳过已处理: {job['title']}", flush=True)
             continue
         print(f"[{index}/{len(jobs)}] 打开: {job['title']}", flush=True)
         page = open_target_page(page.context, url)
         page.wait_for_timeout(1200)
+        attempted += 1
         if args.send and not args.dry_run:
-            result = submit_job(page, args.message)
+            result, success = submit_job(page, args.message)
+            if success:
+                sent += 1
+                state["processed"][url] = {
+                    "title": job["title"],
+                    "result": result,
+                    "success": True,
+                }
+                save_state(state)
         else:
             result = "预演，未执行投递"
+            success = False
         print(f"    {result}", flush=True)
-        state["processed"][url] = {"title": job["title"], "result": result}
-        save_state(state)
         page.wait_for_timeout(max(0, int(args.delay * 1000)))
+    return attempted, sent
 
 
 def main():
@@ -242,18 +260,23 @@ def main():
                 "Boss 安全验证拦截了当前自动化环境（code=37）。请先在普通 Chrome 中完成验证，"
                 "确认职位列表可以正常打开后再重试。"
             )
-        jobs = collect_jobs(page, args.max_jobs)
+        # 多取一些职位，给已成功投递的重复职位留出补位空间。
+        collection_limit = max(args.max_jobs * 5, args.max_jobs + 10)
+        jobs = collect_jobs(page, collection_limit)
         if not jobs:
             page.wait_for_timeout(5000)
-            jobs = collect_jobs(page, args.max_jobs)
+            jobs = collect_jobs(page, collection_limit)
         if not jobs:
             body_text = text_of(page.locator("body"))[:300]
             raise SystemExit(
                 f"没有识别到职位卡片，请确认已登录且搜索页面加载完成。页面提示: {body_text}"
             )
-        print(f"[识别完成] 找到 {len(jobs)} 个职位", flush=True)
-        process_jobs(page, jobs, state, args)
-        print("[完成] 本次任务结束", flush=True)
+        print(f"[识别完成] 找到 {len(jobs)} 个职位候选", flush=True)
+        attempted, sent = process_jobs(page, jobs, state, args)
+        if args.send and not args.dry_run:
+            print(f"[完成] 实际成功投递 {sent}/{args.max_jobs} 个，打开尝试 {attempted} 个", flush=True)
+        else:
+            print(f"[完成] 预演打开 {attempted} 个，未执行投递", flush=True)
 
 
 if __name__ == "__main__":
