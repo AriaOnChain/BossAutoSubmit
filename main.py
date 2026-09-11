@@ -29,6 +29,7 @@ def parse_args():
     parser.add_argument("--keyword", required=True, help="搜索关键词，例如：AI 数据开发")
     parser.add_argument("--city-code", default="101280300", help="Boss 城市代码，默认惠州")
     parser.add_argument("--max-jobs", type=int, default=10, help="目标成功投递数，默认 10")
+    parser.add_argument("--max-pages", type=int, default=5, help="最多搜索页数，默认 5")
     parser.add_argument("--delay", type=float, default=2.0, help="职位之间的等待秒数，默认 2")
     parser.add_argument("--message", default=DEFAULT_MESSAGE, help="沟通时发送的消息")
     parser.add_argument("--send", action="store_true", help="实际点击投递/沟通按钮并发送消息")
@@ -133,10 +134,10 @@ def collect_jobs(page, max_jobs):
     return jobs
 
 
-def search_jobs(page, keyword, city_code):
+def search_jobs(page, keyword, city_code, page_number):
     search_url = (
         "https://www.zhipin.com/web/geek/job?"
-        f"query={quote(keyword)}&city={quote(city_code)}"
+        f"query={quote(keyword)}&city={quote(city_code)}&page={page_number}"
     )
     open_target_page(page.context, search_url)
     page.wait_for_timeout(5000)
@@ -183,11 +184,12 @@ def submit_job(page, message):
     return "已投递并发送消息", True
 
 
-def process_jobs(page, jobs, state, args):
+def process_jobs(page, jobs, state, args, remaining):
     attempted = 0
     sent = 0
     for index, job in enumerate(jobs, start=1):
-        if sent >= args.max_jobs:
+        progress = sent if args.send and not args.dry_run else attempted
+        if progress >= remaining:
             break
         url = job["url"]
         record = state["processed"].get(url, {})
@@ -250,33 +252,60 @@ def main():
             raise SystemExit("Boss 页面被安全策略清空，请检查 Chrome 登录态或稍后重试")
 
         input("请在浏览器中完成登录，确认职位页面可正常访问后按回车继续...")
-        search_jobs(page, args.keyword, args.city_code)
-        if (
-            "/security.html" in page.url
-            or "code=37" in page.url
-            or "/web/user/" in page.url
-        ):
-            raise SystemExit(
-                "Boss 安全验证拦截了当前自动化环境（code=37）。请先在普通 Chrome 中完成验证，"
-                "确认职位列表可以正常打开后再重试。"
-            )
-        # 多取一些职位，给已成功投递的重复职位留出补位空间。
-        collection_limit = max(args.max_jobs * 5, args.max_jobs + 10)
-        jobs = collect_jobs(page, collection_limit)
-        if not jobs:
-            page.wait_for_timeout(5000)
+        seen_urls = set()
+        attempted_total = 0
+        sent_total = 0
+        collection_limit = max(args.max_jobs * 2, args.max_jobs + 10)
+
+        for page_number in range(1, args.max_pages + 1):
+            if (args.send and not args.dry_run and sent_total >= args.max_jobs) or (
+                (not args.send or args.dry_run) and attempted_total >= args.max_jobs
+            ):
+                break
+
+            search_jobs(page, args.keyword, args.city_code, page_number)
+            if (
+                "/security.html" in page.url
+                or "code=37" in page.url
+                or "/web/user/" in page.url
+            ):
+                raise SystemExit(
+                    "Boss 安全验证拦截了当前自动化环境（code=37）。请先在 Firefox 中完成验证，"
+                    "确认职位列表可以正常打开后再重试。"
+                )
+
             jobs = collect_jobs(page, collection_limit)
-        if not jobs:
-            body_text = text_of(page.locator("body"))[:300]
-            raise SystemExit(
-                f"没有识别到职位卡片，请确认已登录且搜索页面加载完成。页面提示: {body_text}"
+            if not jobs:
+                page.wait_for_timeout(5000)
+                jobs = collect_jobs(page, collection_limit)
+            fresh_jobs = [job for job in jobs if job["url"] not in seen_urls]
+            for job in fresh_jobs:
+                seen_urls.add(job["url"])
+            if not fresh_jobs:
+                print(f"[第 {page_number} 页] 没有更多新职位，停止翻页", flush=True)
+                break
+
+            print(
+                f"[第 {page_number}/{args.max_pages} 页] 找到 {len(fresh_jobs)} 个新职位候选",
+                flush=True,
             )
-        print(f"[识别完成] 找到 {len(jobs)} 个职位候选", flush=True)
-        attempted, sent = process_jobs(page, jobs, state, args)
+            attempted, sent = process_jobs(
+                page,
+                fresh_jobs,
+                state,
+                args,
+                args.max_jobs - (sent_total if args.send and not args.dry_run else attempted_total),
+            )
+            attempted_total += attempted
+            sent_total += sent
+
         if args.send and not args.dry_run:
-            print(f"[完成] 实际成功投递 {sent}/{args.max_jobs} 个，打开尝试 {attempted} 个", flush=True)
+            print(
+                f"[完成] 实际成功投递 {sent_total}/{args.max_jobs} 个，打开尝试 {attempted_total} 个",
+                flush=True,
+            )
         else:
-            print(f"[完成] 预演打开 {attempted} 个，未执行投递", flush=True)
+            print(f"[完成] 预演打开 {attempted_total} 个，未执行投递", flush=True)
 
 
 if __name__ == "__main__":
