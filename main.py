@@ -12,7 +12,8 @@ from playwright.sync_api import sync_playwright
 
 
 START_URL = "https://www.zhipin.com/"
-PROFILE_DIR = Path(".boss_firefox_profile")
+PROFILE_ROOT = Path(".boss_profiles")
+DEFAULT_PROFILE = "account_a"
 STATE_FILE = Path("boss_state.json")
 STATE_BACKUP_DIR = Path("boss_state_backups")
 DEFAULT_MESSAGE = "您好，我对这个岗位很感兴趣，方便的话希望进一步了解。"
@@ -39,6 +40,7 @@ def parse_args():
     parser.add_argument("--salary-max", type=float, help="最高薪资，单位 K")
     parser.add_argument("--delay", type=float, default=2.0, help="职位之间的等待秒数，默认 2")
     parser.add_argument("--message", default=DEFAULT_MESSAGE, help="沟通时发送的消息")
+    parser.add_argument("--profile", default=DEFAULT_PROFILE, help="登录态名称，默认 account_a；新增账号可用 account_b，投递记录仍共用")
     parser.add_argument("--send", action="store_true", help="实际点击投递/沟通按钮并发送消息")
     parser.add_argument("--dry-run", action="store_true", help="只识别职位，不执行任何投递操作")
     parser.add_argument("--reset-state", action="store_true", help="清空已处理职位记录")
@@ -55,6 +57,13 @@ def backup_state(reason):
     shutil.copy2(STATE_FILE, backup_file)
     _STATE_BACKED_UP = True
     print(f"[备份] 已保存状态备份: {backup_file}", flush=True)
+
+
+def resolve_profile_dir(profile_name):
+    profile_name = profile_name or DEFAULT_PROFILE
+    if not re.fullmatch(r"[\w.-]+", profile_name):
+        raise SystemExit("--profile 只能包含字母、数字、下划线、中划线和点")
+    return PROFILE_ROOT / profile_name
 
 
 def load_state(reset=False):
@@ -411,6 +420,7 @@ def process_jobs(page, jobs, state, args, remaining):
 
 def main():
     args = parse_args()
+    profile_dir = resolve_profile_dir(args.profile)
     if args.max_jobs <= 0:
         raise SystemExit("--max-jobs 必须大于 0")
     if args.max_pages < 0:
@@ -429,11 +439,13 @@ def main():
         print("[警告] 已启用真实投递，将会点击网页按钮并发送消息", flush=True)
     else:
         print("[模式] 预演，不会执行投递或发送消息", flush=True)
+    print(f"[登录态] 使用浏览器 Profile: {profile_dir}", flush=True)
+    print(f"[投递记录] 多账号共用: {STATE_FILE}", flush=True)
     state = load_state(args.reset_state)
 
     with sync_playwright() as playwright:
         context = playwright.firefox.launch_persistent_context(
-            user_data_dir=str(PROFILE_DIR),
+            user_data_dir=str(profile_dir),
             headless=False,
             viewport={"width": 1280, "height": 800},
             locale="zh-CN",

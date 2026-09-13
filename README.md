@@ -25,6 +25,13 @@ python main.py --keyword "数据开发" --dry-run --max-jobs 5
 python main.py --keyword "数据开发" --salary-min 15 --salary-max 25 --dry-run
 ```
 
+多账号登录态分开、投递记录共享：
+
+```bash
+python main.py --keyword "数据开发" --dry-run
+python main.py --keyword "数据开发" --profile account_b --dry-run
+```
+
 请在 PowerShell 或命令提示符中运行，不要直接双击 `main.py`。首次运行不要加 `--headless`，这样可以看到登录页和可能的风控提示。
 
 3. 确认职位识别无误后，再执行真实投递：
@@ -45,6 +52,7 @@ python main.py --keyword "AI数据开发" --send --message "您好，我对这�
 - `--max-pages`：最大结果加载批次，默认 0 不限；批次是新发现的职位集合，不等于网站页码
 - `--salary-min`：最低薪资，单位 K
 - `--salary-max`：最高薪资，单位 K
+- `--profile`：登录态名称，默认 `account_a`；新增账号可用 `account_b`，投递记录仍共用 `boss_state.json`
 - `--delay`：每个岗位之间的等待时间
 - `--send`：实际点击投递/沟通按钮并发送消息，不加此参数时只预演
 - `--dry-run`：强制预演，即使同时传入 `--send` 也不会发送
@@ -65,10 +73,11 @@ python main.py --keyword "AI数据开发" --send --message "您好，我对这�
 
 ## 说明
 
-- 脚本会复用本地登录态，保存在 `.boss_firefox_profile`
+- 脚本会复用本地登录态；默认账号保存在 `.boss_profiles/account_a`，传入 `--profile account_b` 时保存在 `.boss_profiles/account_b`
 - 脚本使用 Playwright Firefox 持久化 Profile，首次运行需要安装 Firefox 运行时
 - 点击“立即沟通/投递简历”成功就计为投递成功，招呼语发送失败不会影响投递计数
 - 已成功投递岗位会记录在 `boss_state.json`，预演结果不会占用真实投递名额
+- 多个 `--profile` 账号共用同一个 `boss_state.json`，避免不同账号重复投递同一职位
 - 每个职位会先打开详情页；默认只识别职位，只有传入 `--send` 才会执行投递
 - 保留搜索标签页，详情在独立标签页处理；优先点击可见“下一页”，否则滚动职位所在容器。逐批保存职位，按职位链接判断新增，不依赖卡片数量增长
 - 薪资不匹配、历史重复不会终止加载。目标达到、下一页禁用、批次上限或连续等待未发现新职位时停止；等待超时不代表已确认网站没有更多职位
