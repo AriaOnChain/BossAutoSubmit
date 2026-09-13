@@ -1,6 +1,8 @@
 import argparse
 import json
 import re
+import shutil
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -12,6 +14,7 @@ from playwright.sync_api import sync_playwright
 START_URL = "https://www.zhipin.com/"
 PROFILE_DIR = Path(".boss_firefox_profile")
 STATE_FILE = Path("boss_state.json")
+STATE_BACKUP_DIR = Path("boss_state_backups")
 DEFAULT_MESSAGE = "您好，我对这个岗位很感兴趣，方便的话希望进一步了解。"
 STEALTH_SCRIPT = """
 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -22,6 +25,8 @@ console.table = () => undefined;
 console.table.toString = () => 'function table() { [native code] }';
 performance.now = () => Date.now() - performance.timeOrigin;
 """
+
+_STATE_BACKED_UP = False
 
 
 def parse_args():
@@ -40,20 +45,39 @@ def parse_args():
     return parser.parse_args()
 
 
+def backup_state(reason):
+    global _STATE_BACKED_UP
+    if _STATE_BACKED_UP or not STATE_FILE.exists():
+        return
+    STATE_BACKUP_DIR.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = STATE_BACKUP_DIR / f"boss_state_{reason}_{timestamp}.json"
+    shutil.copy2(STATE_FILE, backup_file)
+    _STATE_BACKED_UP = True
+    print(f"[备份] 已保存状态备份: {backup_file}", flush=True)
+
+
 def load_state(reset=False):
-    if reset or not STATE_FILE.exists():
+    if reset:
+        backup_state("reset")
+        return {"processed": {}}
+    if not STATE_FILE.exists():
         return {"processed": {}}
     try:
         return json.loads(STATE_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        backup_state("broken")
         print("[提示] 状态文件无法读取，将重新开始记录", flush=True)
         return {"processed": {}}
 
 
 def save_state(state):
-    STATE_FILE.write_text(
+    backup_state("before_write")
+    temp_file = STATE_FILE.with_suffix(".json.tmp")
+    temp_file.write_text(
         json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    temp_file.replace(STATE_FILE)
 
 
 def open_target_page(context, url: str):

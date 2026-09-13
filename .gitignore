@@ -5,3 +5,5 @@ boss_state.json
 *.log
 .boss_firefox_profile
 *.json
+*.tmp
+boss_state_backups/
