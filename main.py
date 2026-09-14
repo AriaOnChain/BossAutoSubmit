@@ -32,10 +32,15 @@ _STATE_BACKED_UP = False
 def parse_args():
     parser = argparse.ArgumentParser(description="Boss 直聘职位搜索与简历投递助手")
     parser.add_argument("--keyword", required=True, help="搜索关键词，例如：AI 数据开发")
-    parser.add_argument("--city-code", default="101280100", help="Boss 城市代码，默认惠州")
+    parser.add_argument("--city-code", default="101280100", help="Boss 城市代码，默认广州")
     parser.add_argument("--max-jobs", type=int, default=10, help="目标成功投递数，默认 10")
-    parser.add_argument("--salary-min", type=float, help="最低薪资，单位 K")
-    parser.add_argument("--salary-max", type=float, help="最高薪资，单位 K")
+    parser.add_argument("--salary-min", default=15, type=float, help="最低薪资，单位 K，默认 15")
+    parser.add_argument("--salary-max", default=29, type=float, help="最高薪资，单位 K，默认 29")
+    parser.add_argument(
+        "--exclude-keywords",
+        default="应届,博士,英语,总监 硕士,博士",
+        help="排除包含这些关键词的职位，使用逗号分隔；默认：应届,博士,英语",
+    )
     parser.add_argument("--delay", type=float, default=2.0, help="职位之间的等待秒数，默认 2")
     parser.add_argument("--profile", default=DEFAULT_PROFILE, help="登录态名称，默认 account_a；新增账号可用 account_b，投递记录仍共用")
     parser.add_argument("--send", action="store_true", help="实际查找并点击“立即沟通”")
@@ -167,6 +172,19 @@ def salary_matches(salary, salary_min, salary_max):
     if salary_max is not None and low > salary_max:
         return False
     return True
+
+
+def parse_exclude_keywords(value):
+    return tuple(
+        keyword.strip().casefold()
+        for keyword in re.split(r"[,，]", value or "")
+        if keyword.strip()
+    )
+
+
+def contains_excluded_keyword(job, keywords):
+    title = (job.get("title") or "").casefold()
+    return any(keyword in title for keyword in keywords)
 
 
 def collect_jobs(page, max_jobs, salary_min=None, salary_max=None):
@@ -397,6 +415,7 @@ def main():
         and args.salary_min > args.salary_max
     ):
         raise SystemExit("--salary-min 不能大于 --salary-max")
+    exclude_keywords = parse_exclude_keywords(args.exclude_keywords)
     if args.send and not args.dry_run:
         print("[警告] 已启用真实投递，将会查找并点击“立即沟通”", flush=True)
     else:
@@ -431,9 +450,11 @@ def main():
         real_send = args.send and not args.dry_run
         try:
             for batch in iter_result_batches(page):
-                jobs = [job for job in batch if salary_matches(
+                salary_jobs = [job for job in batch if salary_matches(
                     job["salary"], args.salary_min, args.salary_max)]
-                print(f"[薪资筛选] 保留 {len(jobs)}/{len(batch)} 个", flush=True)
+                jobs = [job for job in salary_jobs if not contains_excluded_keyword(
+                    job, exclude_keywords)]
+                print(f"[筛选] 薪资保留 {len(salary_jobs)}/{len(batch)} 个，关键词排除后 {len(jobs)} 个", flush=True)
                 remaining = args.max_jobs - (sent_total if real_send else attempted_total)
                 attempted, sent, skipped = process_jobs(
                     detail_page, jobs, state, args, remaining)
