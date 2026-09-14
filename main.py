@@ -33,7 +33,7 @@ _STATE_BACKED_UP = False
 def parse_args():
     parser = argparse.ArgumentParser(description="Boss 直聘职位搜索与简历投递助手")
     parser.add_argument("--keyword", required=True, help="搜索关键词，例如：AI 数据开发")
-    parser.add_argument("--city-code", default="101280300", help="Boss 城市代码，默认惠州")
+    parser.add_argument("--city-code", default="101280100", help="Boss 城市代码，默认惠州")
     parser.add_argument("--max-jobs", type=int, default=10, help="目标成功投递数，默认 10")
     parser.add_argument("--max-pages", type=int, default=0, help="最大结果加载批次，0 表示不限；按网站下一页或滚动加载")
     parser.add_argument("--salary-min", type=float, help="最低薪资，单位 K")
@@ -346,7 +346,29 @@ def submit_job(page, message):
     action = first_visible_button(page, ["立即沟通", "投递简历", "立即投递", "立即申请"])
     if action is None:
         return "未找到投递按钮", False
-    action.click(timeout=8000)
+    try:
+        # Boss 的沟通入口通常通过异步请求打开聊天窗口，可能不会完成一次
+        # 标准的导航生命周期。禁止 click 等待导航，避免“已经点击成功”却
+        # 被 Playwright 误报为超时。
+        action.click(timeout=8000, no_wait_after=True)
+    except PlaywrightTimeoutError:
+        # 点击动作可能已经发出，只是页面没有在超时前完成后续状态变化。
+        # 仅在页面仍可用且聊天输入框已出现时视为成功；否则交给调用方记录
+        # 失败并继续处理下一个职位。
+        page.wait_for_timeout(800)
+        if page.is_closed():
+            return "点击投递入口超时，详情页已关闭", False
+        if not any(
+            page.locator(selector).count()
+            and page.locator(selector).first.is_visible()
+            for selector in (
+                "textarea[placeholder*='打招呼']",
+                "textarea[placeholder*='消息']",
+                "textarea",
+                "input[placeholder*='消息']",
+            )
+        ):
+            return "点击投递入口超时，未确认投递结果", False
     page.wait_for_timeout(1200)
 
     message_box = None
@@ -397,11 +419,21 @@ def process_jobs(page, jobs, state, args, remaining):
             print(f"[{index}/{len(jobs)}] 跳过已处理: {job['title']}", flush=True)
             continue
         print(f"[{index}/{len(jobs)}] 打开: {job['title']}", flush=True)
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        except PlaywrightTimeoutError:
+            print("    页面加载超时，跳过此职位", flush=True)
+            continue
+        except PlaywrightError as error:
+            print(f"    页面打开失败，跳过此职位: {error}", flush=True)
+            continue
         page.wait_for_timeout(1200)
         attempted += 1
         if args.send and not args.dry_run:
-            result, success = submit_job(page, args.message)
+            try:
+                result, success = submit_job(page, args.message)
+            except PlaywrightError as error:
+                result, success = f"投递操作失败，已跳过: {error}", False
             if success:
                 sent += 1
                 state["processed"][url] = {
