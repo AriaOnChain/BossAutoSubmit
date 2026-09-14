@@ -16,7 +16,6 @@ PROFILE_ROOT = Path(".boss_profiles")
 DEFAULT_PROFILE = "account_a"
 STATE_FILE = Path("boss_state.json")
 STATE_BACKUP_DIR = Path("boss_state_backups")
-DEFAULT_MESSAGE = "您好，我对这个岗位很感兴趣，方便的话希望进一步了解。"
 STEALTH_SCRIPT = """
 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
 Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh', 'en-US', 'en']});
@@ -39,9 +38,8 @@ def parse_args():
     parser.add_argument("--salary-min", type=float, help="最低薪资，单位 K")
     parser.add_argument("--salary-max", type=float, help="最高薪资，单位 K")
     parser.add_argument("--delay", type=float, default=2.0, help="职位之间的等待秒数，默认 2")
-    parser.add_argument("--message", default=DEFAULT_MESSAGE, help="沟通时发送的消息")
     parser.add_argument("--profile", default=DEFAULT_PROFILE, help="登录态名称，默认 account_a；新增账号可用 account_b，投递记录仍共用")
-    parser.add_argument("--send", action="store_true", help="实际点击投递/沟通按钮并发送消息")
+    parser.add_argument("--send", action="store_true", help="实际查找并点击“立即沟通”")
     parser.add_argument("--dry-run", action="store_true", help="只识别职位，不执行任何投递操作")
     parser.add_argument("--reset-state", action="store_true", help="清空已处理职位记录")
     return parser.parse_args()
@@ -342,56 +340,16 @@ def first_visible_button(page, names):
     return None
 
 
-def submit_job(page, message):
-    action = first_visible_button(page, ["立即沟通", "投递简历", "立即投递", "立即申请"])
+def submit_job(page):
+    action = first_visible_button(page, ["立即沟通"])
     if action is None:
-        return "未找到投递按钮", False
+        return "未找到“立即沟通”按钮", False
     try:
-        # Boss 的沟通入口通常通过异步请求打开聊天窗口，可能不会完成一次
-        # 标准的导航生命周期。禁止 click 等待导航，避免“已经点击成功”却
-        # 被 Playwright 误报为超时。
+        # 只要成功找到并调用点击操作，就视为投递成功；不再等待或发送招呼语。
         action.click(timeout=8000, no_wait_after=True)
     except PlaywrightTimeoutError:
-        # 点击动作可能已经发出，只是页面没有在超时前完成后续状态变化。
-        # 仅在页面仍可用且聊天输入框已出现时视为成功；否则交给调用方记录
-        # 失败并继续处理下一个职位。
-        page.wait_for_timeout(800)
-        if page.is_closed():
-            return "点击投递入口超时，详情页已关闭", False
-        if not any(
-            page.locator(selector).count()
-            and page.locator(selector).first.is_visible()
-            for selector in (
-                "textarea[placeholder*='打招呼']",
-                "textarea[placeholder*='消息']",
-                "textarea",
-                "input[placeholder*='消息']",
-            )
-        ):
-            return "点击投递入口超时，未确认投递结果", False
-    page.wait_for_timeout(1200)
-
-    message_box = None
-    for selector in [
-        "textarea[placeholder*='打招呼']",
-        "textarea[placeholder*='消息']",
-        "textarea",
-        "input[placeholder*='消息']",
-    ]:
-        candidate = page.locator(selector).first
-        if candidate.count() and candidate.is_visible():
-            message_box = candidate
-            break
-    if message_box is None:
-        return "已点击投递入口，投递成功（未发送招呼语）", True
-
-    message_box.fill(message)
-    send_button = first_visible_button(page, ["发送", "立即发送"])
-    if send_button is None:
-        return "已点击投递入口，投递成功（招呼语未发送）", True
-    send_button.click(timeout=8000)
-    page.wait_for_timeout(800)
-    return "已投递并发送消息", True
+        return "点击“立即沟通”失败", False
+    return "已点击“立即沟通”，投递成功", True
 
 
 def process_jobs(page, jobs, state, args, remaining):
@@ -431,7 +389,7 @@ def process_jobs(page, jobs, state, args, remaining):
         attempted += 1
         if args.send and not args.dry_run:
             try:
-                result, success = submit_job(page, args.message)
+                result, success = submit_job(page)
             except PlaywrightError as error:
                 result, success = f"投递操作失败，已跳过: {error}", False
             if success:
@@ -468,9 +426,9 @@ def main():
     ):
         raise SystemExit("--salary-min 不能大于 --salary-max")
     if args.send and not args.dry_run:
-        print("[警告] 已启用真实投递，将会点击网页按钮并发送消息", flush=True)
+        print("[警告] 已启用真实投递，将会查找并点击“立即沟通”", flush=True)
     else:
-        print("[模式] 预演，不会执行投递或发送消息", flush=True)
+        print("[模式] 预演，不会执行投递或点击“立即沟通”", flush=True)
     print(f"[登录态] 使用浏览器 Profile: {profile_dir}", flush=True)
     print(f"[投递记录] 多账号共用: {STATE_FILE}", flush=True)
     state = load_state(args.reset_state)

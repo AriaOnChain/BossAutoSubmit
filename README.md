@@ -40,12 +40,6 @@ python main.py --keyword "数据开发" --profile account_b --dry-run
 python main.py --keyword "AI数据开发" --send --max-jobs 5
 ```
 
-4. 直接发送消息时可以改模板：
-
-```bash
-python main.py --keyword "AI数据开发" --send --message "您好，我对这个岗位很感兴趣，方便的话希望进一步了解。"
-```
-
 ## 参数
 
 - `--max-jobs`：目标成功投递数量；已成功投递的重复职位不占用数量
@@ -54,8 +48,8 @@ python main.py --keyword "AI数据开发" --send --message "您好，我对这�
 - `--salary-max`：最高薪资，单位 K
 - `--profile`：登录态名称，默认 `account_a`；新增账号可用 `account_b`，投递记录仍共用 `boss_state.json`
 - `--delay`：每个岗位之间的等待时间
-- `--send`：实际点击投递/沟通按钮并发送消息，不加此参数时只预演
-- `--dry-run`：强制预演，即使同时传入 `--send` 也不会发送
+- `--send`：实际查找并点击“立即沟通”，不加此参数时只预演
+- `--dry-run`：强制预演，即使同时传入 `--send` 也不会点击“立即沟通”
 - `--reset-state`：清空已处理岗位记录
 
 ### 城市代码 
@@ -75,7 +69,7 @@ python main.py --keyword "AI数据开发" --send --message "您好，我对这�
 
 - 脚本会复用本地登录态；默认账号保存在 `.boss_profiles/account_a`，传入 `--profile account_b` 时保存在 `.boss_profiles/account_b`
 - 脚本使用 Playwright Firefox 持久化 Profile，首次运行需要安装 Firefox 运行时
-- 点击“立即沟通/投递简历”成功就计为投递成功，招呼语发送失败不会影响投递计数
+- 找到并点击“立即沟通”就计为投递成功，不发送招呼语
 - 已成功投递岗位会记录在 `boss_state.json`，预演结果不会占用真实投递名额
 - 多个 `--profile` 账号共用同一个 `boss_state.json`，避免不同账号重复投递同一职位
 - 每个职位会先打开详情页；默认只识别职位，只有传入 `--send` 才会执行投递
