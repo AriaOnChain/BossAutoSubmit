@@ -34,7 +34,6 @@ def parse_args():
     parser.add_argument("--keyword", required=True, help="搜索关键词，例如：AI 数据开发")
     parser.add_argument("--city-code", default="101280100", help="Boss 城市代码，默认惠州")
     parser.add_argument("--max-jobs", type=int, default=10, help="目标成功投递数，默认 10")
-    parser.add_argument("--max-pages", type=int, default=0, help="最大结果加载批次，0 表示不限；按网站下一页或滚动加载")
     parser.add_argument("--salary-min", type=float, help="最低薪资，单位 K")
     parser.add_argument("--salary-max", type=float, help="最高薪资，单位 K")
     parser.add_argument("--delay", type=float, default=2.0, help="职位之间的等待秒数，默认 2")
@@ -93,7 +92,7 @@ def open_target_page(context, url: str):
         if stray_page.url == "about:blank":
             stray_page.close()
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page.goto(url, wait_until="domcontentloaded", timeout=5000)
     except PlaywrightTimeoutError:
         print(f"[提示] 页面加载较慢，继续等待: {url}", flush=True)
     except PlaywrightError as error:
@@ -102,7 +101,7 @@ def open_target_page(context, url: str):
             raise
         print(f"[提示] 页面发生重定向，继续使用当前页面: {page.url}", flush=True)
     if page.url == "about:blank":
-        page.goto(url, wait_until="load", timeout=30000)
+        page.goto(url, wait_until="load", timeout=5000)
     return page
 
 
@@ -263,22 +262,8 @@ def check_search_page(page):
         raise RuntimeError("搜索页进入登录、验证或空白页面，请在浏览器中处理后重试")
 
 
-def advance_results(page):
-    """优先使用可见分页控件，否则滚动职位所在的容器。"""
-    for locator in (
-        page.get_by_role("button", name=re.compile(r"^下一页$")),
-        page.get_by_role("link", name=re.compile(r"^下一页$")),
-        page.locator('[aria-label="下一页"], a[rel="next"]'),
-    ):
-        for button in locator.all():
-            if not button.is_visible():
-                continue
-            disabled = button.get_attribute("aria-disabled") == "true"
-            disabled = disabled or "disabled" in (button.get_attribute("class") or "").split()
-            if disabled or not button.is_enabled():
-                return "end"
-            button.click(timeout=8000)
-            return "next"
+def scroll_results(page):
+    """仅滚动职位列表，不点击分页控件。"""
     page.evaluate("""() => {
         const a = [...document.querySelectorAll('a[href*="/job_detail/"]')]
             .find(el => el.getClientRects().length);
@@ -292,13 +277,11 @@ def advance_results(page):
         root = root && root !== document.body ? root : document.scrollingElement;
         root.scrollBy(0, Math.max(100, root.clientHeight * 0.8));
     }""")
-    return "scroll"
 
 
-def iter_result_batches(page, max_batches=0, idle_limit=15):
+def iter_result_batches(page, idle_limit=5):
     seen = set()
     batches = idle = 0
-    awaiting_next = False
     while True:
         check_search_page(page)
         # 在每次滚动前保存职位；虚拟列表的 DOM 数量可能始终不变。
@@ -308,23 +291,14 @@ def iter_result_batches(page, max_batches=0, idle_limit=15):
             seen.update(job_key(job["url"]) for job in fresh)
             batches += 1
             idle = 0
-            awaiting_next = False
             print(f"[结果批次 {batches}] 新职位 {len(fresh)}，累计 {len(seen)}", flush=True)
             yield fresh
-            if max_batches and batches >= max_batches:
-                print("[停止] 已达到结果批次上限", flush=True)
-                return
         else:
             idle += 1
             if idle >= idle_limit:
                 print("[停止] 连续等待未发现新职位；可能已到末尾或加载未成功", flush=True)
                 return
-        if not awaiting_next:
-            action = advance_results(page)
-            if action == "end":
-                print("[停止] 网站下一页按钮已禁用", flush=True)
-                return
-            awaiting_next = action == "next"
+        scroll_results(page)
         page.wait_for_timeout(1000)
 
 
@@ -378,7 +352,7 @@ def process_jobs(page, jobs, state, args, remaining):
             continue
         print(f"[{index}/{len(jobs)}] 打开: {job['title']}", flush=True)
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.goto(url, wait_until="domcontentloaded", timeout=6000)
         except PlaywrightTimeoutError:
             print("    页面加载超时，跳过此职位", flush=True)
             continue
@@ -413,8 +387,6 @@ def main():
     profile_dir = resolve_profile_dir(args.profile)
     if args.max_jobs <= 0:
         raise SystemExit("--max-jobs 必须大于 0")
-    if args.max_pages < 0:
-        raise SystemExit("--max-pages 不能小于 0")
     if args.salary_min is not None and args.salary_min < 0:
         raise SystemExit("--salary-min 不能小于 0")
     if args.salary_max is not None and args.salary_max < 0:
@@ -458,7 +430,7 @@ def main():
         detail_page = context.new_page()
         real_send = args.send and not args.dry_run
         try:
-            for batch in iter_result_batches(page, args.max_pages):
+            for batch in iter_result_batches(page):
                 jobs = [job for job in batch if salary_matches(
                     job["salary"], args.salary_min, args.salary_max)]
                 print(f"[薪资筛选] 保留 {len(jobs)}/{len(batch)} 个", flush=True)
