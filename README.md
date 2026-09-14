@@ -10,8 +10,9 @@ python main.py --keyword "数据开发" --send --salary-min 15 --max-jobs 1
 
 ```bash
 pip install playwright
-playwright install firefox
 ```
+
+脚本默认使用 Playwright Firefox，首次运行需要在 Firefox 中手动登录。
 
 2. 第一次运行先手动登录并预演：
 
@@ -67,7 +68,7 @@ python main.py --keyword "AI数据开发" --send --max-jobs 5
 ## 说明
 
 - 脚本会复用本地登录态；默认账号保存在 `.boss_profiles/account_a`，传入 `--profile account_b` 时保存在 `.boss_profiles/account_b`
-- 脚本使用 Playwright Firefox 持久化 Profile，首次运行需要安装 Firefox 运行时
+- 脚本使用 Playwright Firefox 的持久化 Profile
 - 找到并点击“立即沟通”就计为投递成功，不发送招呼语
 - 已成功投递岗位会记录在 `boss_state.json`，预演结果不会占用真实投递名额
 - 多个 `--profile` 账号共用同一个 `boss_state.json`，避免不同账号重复投递同一职位

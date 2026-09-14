@@ -299,7 +299,7 @@ def iter_result_batches(page, idle_limit=5):
                 print("[停止] 连续等待未发现新职位；可能已到末尾或加载未成功", flush=True)
                 return
         scroll_results(page)
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(500)
 
 
 
@@ -422,7 +422,7 @@ def main():
         print(f"[启动完成] 当前 URL: {page.url}", flush=True)
         page.wait_for_timeout(5000)
         if page.url == "about:blank":
-            raise SystemExit("Boss 页面被安全策略清空，请检查 Chrome 登录态或稍后重试")
+            raise SystemExit("Boss 页面被安全策略清空，请检查 Firefox 登录态或稍后重试")
 
         input("请在浏览器中完成登录，确认职位页面可正常访问后按回车继续...")
         search_jobs(page, args.keyword, args.city_code)
