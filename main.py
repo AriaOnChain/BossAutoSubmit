@@ -33,12 +33,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Boss 直聘职位搜索与简历投递助手")
     parser.add_argument("--keyword", required=True, help="搜索关键词，例如：AI 数据开发")
     parser.add_argument("--city-code", default="101280100", help="Boss 城市代码，默认广州")
-    parser.add_argument("--max-jobs", type=int, default=10, help="目标成功投递数，默认 10")
-    parser.add_argument("--salary-min", default=15, type=float, help="最低薪资，单位 K，默认 15")
-    parser.add_argument("--salary-max", default=29, type=float, help="最高薪资，单位 K，默认 29")
+    parser.add_argument("--max-jobs", type=int, default=50, help="目标成功投递数，默认 10")
+    parser.add_argument("--salary-min", default=13, type=float, help="最低薪资，单位 K，默认 15")
+    parser.add_argument("--salary-max", default=25, type=float, help="最高薪资，单位 K，默认 29")
     parser.add_argument(
         "--exclude-keywords",
-        default="应届,博士,英语,总监 硕士,博士",
+        default="JAVA,应届,校招,博士,总监 硕士,博士,主管,经理",
         help="排除包含这些关键词的职位，使用逗号分隔；默认：应届,博士,英语",
     )
     parser.add_argument("--delay", type=float, default=2.0, help="职位之间的等待秒数，默认 2")
@@ -297,7 +297,7 @@ def scroll_results(page):
     }""")
 
 
-def iter_result_batches(page, idle_limit=5):
+def iter_result_batches(page, idle_limit=8):
     seen = set()
     batches = idle = 0
     while True:
@@ -317,7 +317,7 @@ def iter_result_batches(page, idle_limit=5):
                 print("[停止] 连续等待未发现新职位；可能已到末尾或加载未成功", flush=True)
                 return
         scroll_results(page)
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(10000)
 
 
 
@@ -343,6 +343,24 @@ def submit_job(page):
         return "点击“立即沟通”失败", False
     return "已点击“立即沟通”，投递成功", True
 
+# def submit_job(page):
+#     action = first_visible_button(page, ["立即沟通"])
+#     if action is None:
+#         return "未找到“立即沟通”按钮", False
+#     try:
+#         action.click(timeout=8000, no_wait_after=True)
+#     except PlaywrightTimeoutError as e:
+#         # 打印详细原因
+#         print(f"    [调试] click 超时详情: {e}", flush=True)
+#         try:
+#             print(f"    [调试] 元素 box: {action.bounding_box()}", flush=True)
+#             print(f"    [调试] 当前 URL: {page.url}", flush=True)
+#             # 截图方便人工看
+#             page.screenshot(path="click_fail.png")
+#         except Exception:
+#             pass
+#         return "点击“立即沟通”失败", False
+#     return "已点击“立即沟通”，投递成功", True
 
 def process_jobs(page, jobs, state, args, remaining):
     attempted = 0
@@ -377,7 +395,7 @@ def process_jobs(page, jobs, state, args, remaining):
         except PlaywrightError as error:
             print(f"    页面打开失败，跳过此职位: {error}", flush=True)
             continue
-        page.wait_for_timeout(1200)
+        page.wait_for_timeout(5000)
         attempted += 1
         if args.send and not args.dry_run:
             try:
